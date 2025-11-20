@@ -1,0 +1,145 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model availability_schedules {
+  schedule_id           BigInt        @id @default(autoincrement())
+  dosen_user_id         BigInt
+  type                  schedule_type
+  slot_duration_minutes Int?          @default(30)
+  start_time            DateTime?     @db.Timestamptz(6)
+  end_time              DateTime?     @db.Timestamptz(6)
+  day_of_week           Int?
+  rutin_start_time      DateTime?     @db.Time(6)
+  rutin_end_time        DateTime?     @db.Time(6)
+  effective_start_date  DateTime?     @db.Date
+  effective_end_date    DateTime?     @db.Date
+  created_at            DateTime?     @default(now()) @db.Timestamptz(6)
+  users                 users         @relation(fields: [dosen_user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_schedule_dsn")
+  slots                 slots[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model bookings {
+  booking_id        BigInt          @id @default(autoincrement())
+  slot_id           BigInt          @unique
+  mahasiswa_user_id BigInt
+  topik_agenda      String?
+  status            booking_status? @default(confirmed)
+  created_at        DateTime?       @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime?       @default(now()) @db.Timestamptz(6)
+  users             users           @relation(fields: [mahasiswa_user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_booking_mhs")
+  slots             slots           @relation(fields: [slot_id], references: [slot_id], onUpdate: NoAction, map: "fk_booking_slot")
+  logbooks          logbooks?
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model logbooks {
+  logbook_id    BigInt    @id @default(autoincrement())
+  booking_id    BigInt    @unique
+  catatan_dosen String
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  bookings      bookings  @relation(fields: [booking_id], references: [booking_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_logbook_booking")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model mapping_pa {
+  mapping_id                                BigInt    @id @default(autoincrement())
+  mahasiswa_user_id                         BigInt    @unique
+  dosen_pa_user_id                          BigInt
+  is_override                               Boolean?  @default(false)
+  last_synced_at                            DateTime? @default(now()) @db.Timestamptz(6)
+  dosen_pa_user  users     @relation("mapping_pa_dosen_pa_user_idTousers", fields: [dosen_pa_user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_mapping_dsn")
+  mahasiswa_user users     @relation("mapping_pa_mahasiswa_user_idTousers", fields: [mahasiswa_user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_mapping_mhs")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model override_logs {
+  override_log_id                              BigInt           @id @default(autoincrement())
+  mahasiswa_user_id                            BigInt
+  admin_user_id                                BigInt
+  dosen_pa_lama_id                             BigInt?
+  dosen_pa_baru_id                             BigInt
+  alasan                                       String?
+  status                                       override_status? @default(active)
+  created_at                                   DateTime?        @default(now()) @db.Timestamptz(6)
+  reconciled_at                                DateTime?        @db.Timestamptz(6)
+  users_override_logs_admin_user_idTousers     users            @relation("override_logs_admin_user_idTousers", fields: [admin_user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_override_admin")
+  users_override_logs_dosen_pa_baru_idTousers  users            @relation("override_logs_dosen_pa_baru_idTousers", fields: [dosen_pa_baru_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_override_dsn_baru")
+  users_override_logs_dosen_pa_lama_idTousers  users?           @relation("override_logs_dosen_pa_lama_idTousers", fields: [dosen_pa_lama_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_override_dsn_lama")
+  users_override_logs_mahasiswa_user_idTousers users            @relation("override_logs_mahasiswa_user_idTousers", fields: [mahasiswa_user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_override_mhs")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model slots {
+  slot_id                BigInt                 @id @default(autoincrement())
+  schedule_id            BigInt
+  dosen_user_id          BigInt
+  start_time             DateTime               @db.Timestamptz(6)
+  end_time               DateTime               @db.Timestamptz(6)
+  status                 slot_status?           @default(available)
+  created_at             DateTime?              @default(now()) @db.Timestamptz(6)
+  bookings               bookings?
+  users                  users                  @relation(fields: [dosen_user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_slot_dsn")
+  availability_schedules availability_schedules @relation(fields: [schedule_id], references: [schedule_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_slot_schedule")
+
+  @@index([dosen_user_id, start_time], map: "idx_slots_dosen_time")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model users {
+  user_id                                              BigInt                   @id @default(autoincrement())
+  external_id                                          String                   @unique @db.VarChar(100)
+  name                                                 String                   @db.VarChar(255)
+  email                                                String                   @unique @db.VarChar(255)
+  role                                                 role_type
+  created_at                                           DateTime?                @default(now()) @db.Timestamptz(6)
+  updated_at                                           DateTime?                @default(now()) @updatedAt @db.Timestamptz(6)
+  availability_schedules                               availability_schedules[]
+  bookings                                             bookings[]
+  mapping_sebagai_pa        mapping_pa[]             @relation("mapping_pa_dosen_pa_user_idTousers")
+  mapping_sebagai_mhs       mapping_pa?              @relation("mapping_pa_mahasiswa_user_idTousers")
+  logs_sebagai_admin     override_logs[]          @relation("override_logs_admin_user_idTousers")
+  logs_sebagai_pa_baru  override_logs[]          @relation("override_logs_dosen_pa_baru_idTousers")
+  logs_sebagai_pa_lama  override_logs[]          @relation("override_logs_dosen_pa_lama_idTousers")
+  logs_sebagai_mhs override_logs[]          @relation("override_logs_mahasiswa_user_idTousers")
+  slots                                                slots[]
+
+  @@index([external_id], map: "idx_users_external_id")
+}
+
+enum booking_status {
+  confirmed
+  completed
+  cancelled_by_mahasiswa
+}
+
+enum override_status {
+  active
+  reconciled
+}
+
+enum role_type {
+  mahasiswa
+  dosen
+  admin_prodi
+}
+
+enum schedule_type {
+  ad_hoc
+  rutin
+  blok
+}
+
+enum slot_status {
+  available
+  booked
+  cancelled_by_dosen
+}
