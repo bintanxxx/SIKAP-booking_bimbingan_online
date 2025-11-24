@@ -28,7 +28,7 @@ export const createAdhocSchedule = async (dosenUserId, data) => {
                 {start_time: {lt: endTime.toDate()}},
                 // end baru lebih besar dari start lama
                 {end_time : {gt: startTime.toDate()}}
-            ]   
+            ],   
         }
     })
 
@@ -113,4 +113,106 @@ export const createAdhocSchedule = async (dosenUserId, data) => {
         total_slot: slotToCreate.length
     }
 
+}
+
+// {
+//   "type": "blok",
+//   "effective_start_date": "2025-12-01",
+//   "effective_end_date": "2025-12-05",
+//   "start_jam": "09:00",
+//   "end_jam": "12:00",
+//   "slot_duration": 30
+// }
+
+
+export const createBlokSchedule = async (dosenUserId, data) => {
+    // const startTIme = dayjs(data.start_time);
+    // const endTime = dayjs(data.end_time);
+    const durationMinutes = data.slot_duration || 30;
+    const startDate = dayjs(data.effective_start_date);
+    const endDate = dayjs(data.effective_end_date);
+
+    const slotToCreate = []
+
+    let currentDay = startDate;
+
+    while (currentDay.isSameOrBefore(endDate, 'day')){
+        const [startHour, startMinute] = data.start_time.split(':').map(Number)
+        const [endHour, endMinute] = data.end_time.split(':').map(Number)
+
+        const dailyStartTime = currentDay
+                                .hour(startHour)
+                                .minute(startMinute)
+                                .second(0)
+                                .millisecond(0)
+        const dailyEndTime = currentDay
+                                .hour(endHour)
+                                .minute(endMinute)
+                                .second(0)
+                                .millisecond(0)
+
+
+        const conflict = await prisma.availability_schedules.findFirst({
+            where : {
+                dosen_user_id : dosenUserId,
+                AND : [
+                    {start_time : {lt: dailyEndTime.toDate()}},
+                    {end_time : {gt : dailyStartTime.toDate()}}
+                ]
+            }
+        })
+
+        if (conflict) {
+            const conflictDate = dayjs(dailyStartTime).format("DD MMM YYYY");
+            const conflictStart = dayjs(conflict.start_time).format("HH:mm");
+            const conflictEnd = dayjs(conflict.end_time).format("HH:mm");
+
+            throw new Error(
+                `Jadwal Blok Gagal: Pada tanggal ${conflictDate}, sudah ada jadwal lain (${conflictStart} - ${conflictEnd}).`
+            );
+        }
+
+        let currentTime = dailyStartTime;
+        while(currentTime.add(durationMinutes,'minute').isSameOrBefore(dailyEndTime)){
+            const slotEndTime = currentTime.add(durationMinutes, 'minute')
+
+            slotToCreate.push({
+                dosen_user_id: dosenUserId,
+                start_time: currentTime.toDate(),
+                end_time: slotEndTime.toDate(),
+                status: 'available'
+            })
+
+            currentTime = slotEndTime
+        }
+
+        currentDay = currentDay.add(1, 'day')
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+        const newSchedule = await tx.availability_schedules.create({
+            data : {
+                dosen_user_id : dosenUserId,
+                type : 'blok',
+                slot_duration_minutes: durationMinutes,
+                // Untuk blok, start_time/end_time di header bisa kita isi 
+                // gabungan tanggal awal + jam awal
+                start_time: dayjs(`${data.effective_start_date}T${data.start_time}`).toDate(),
+                end_time: dayjs(`${data.effective_end_date}T${data.end_time}`).toDate(),
+
+                effective_start_date: startDate.toDate(),
+                effective_end_date: endDate.toDate()
+            }
+        })
+
+        const slotWithRelation = slotToCreate.map(slot => ({
+            ...slot,
+            schedule_id: newSchedule.schedule_id
+        }))
+
+        await tx.slots.createMany({data : slotWithRelation})
+        return newSchedule
+    })
+
+    return { schedule: result, total_slots: slotToCreate.length };
 }

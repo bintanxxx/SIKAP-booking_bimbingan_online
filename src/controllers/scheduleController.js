@@ -1,5 +1,5 @@
 import prisma from '../utils/prisma.js'
-import {createAdhocSchedule} from'../services/scheduleService.js'
+import {createAdhocSchedule, createBlokSchedule} from'../services/scheduleService.js'
 
 export const createSchedule = async (req, res, next) => {
     try {
@@ -11,9 +11,9 @@ export const createSchedule = async (req, res, next) => {
 
         let result;
         if (type === 'ad_hoc') {
-
-
             result = await createAdhocSchedule(dosenUserId, req.body)
+        } else if (type === 'blok') {
+            result = await createBlokSchedule(dosenUserId, req.body)
         }
 
         return res.status(201).json({
