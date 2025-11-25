@@ -216,3 +216,113 @@ export const createBlokSchedule = async (dosenUserId, data) => {
 
     return { schedule: result, total_slots: slotToCreate.length };
 }
+
+// {
+//   "type": "rutin",
+//   "day_of_week": 1,
+//   "start_jam": "13:00",
+//   "end_jam": "15:00",
+//   "effective_start_date": "2025-09-01",
+//   "effective_end_date": "2025-12-31",
+//   "slot_duration": 30
+// }
+
+export const createRoutineSchedule = async (dosenUserId, data) => {
+    const startDate = dayjs(data.effective_start_date);
+    const endDate = dayjs(data.effective_end_date);
+    const durationMinutes = data.slot_duration || 30;
+
+    const slotToCreate = [];
+
+    // kalo tanggal mulai dan hari belom sesuai, geser tanggal sampe ketemu harinya
+    let currentDay = startDate;
+    while (currentDay.day() !== data.day_of_week) {
+        currentDay = currentDay.add(1, 'day')
+    } // jika perulangan sudah berakhir maka hari dan tanggal sudah sesuai
+
+    // memisahkan data waktu menjadi jam dan menit
+    const [startHour, startMinute] = data.start_time.split(':').map(Number)
+    const [endHour, endMinute] = data.start_time.split(':').map(Number)
+
+    while (currentDay.isSameOrBefore(endDate, 'day')){
+        // mendefinisikan waktu mulai dan akhir pada tiap tanggal
+        const routineStartTime = currentDay.hour(startHour).minute(startMinute).second(0).millisecond(0);
+        const routineEndTime = currentDay.hour(endHour).minute(endMinute).second(0).millisecond(0);
+
+        // cek konflik. apakah ada,
+        // 1. jadwal di hari ini yg waktu mulainya kurang dari waktu akhir di jadwal lain?
+        // 2. jadwal di hari ini yg  waktu akhirnya lebih dari waktu mulai di jadwal lain?
+        const conflict = await prisma.availability_schedules.findFirst({
+            where : {
+                dosen_user_id: dosenUserId,
+                AND : [
+                    {start_time : {lt : routineEndTime.toDate()}},
+                    {end_time: {gt : routineStartTime.toDate()}}
+                ]
+            }
+        });
+
+        if (conflict) {
+            const conflictDate = dayjs(routineStartTime).format("DD MMM YYYY"); 
+            const conflictStart = dayjs(conflict.start_time).format("HH:mm");
+            const conflictEnd = dayjs(conflict.end_time).format("HH:mm");
+
+            throw new Error(
+                `Jadwal Rutin Gagal: Pada tanggal ${conflictDate}, sudah ada jadwal lain (${conflictStart} - ${conflictEnd}).`
+            );
+        };
+
+        // generate slot harian
+        let currentTime = routineStartTime;
+        // asumsikan jam saat ini 8.00
+        // apakh jam saat ini ditambah durasi bimbingan dalam menit sama dengan kurang dari waktu akhir
+        while (currentTime.add(durationMinutes, 'minute').isSameOrBefore(routineEndTime)){
+            // waktu akhir dari slot = waktu saat ini di tambah menit durasi
+            const slotEndTime = currentTime.add(durationMinutes, 'minute')
+
+            slotToCreate.push({
+                dosen_user_id : dosenUserId,
+                start_time: currentTime.toDate(),
+                end_time: slotEndTime.toDate(),
+                status: 'available'
+            });
+
+            // jam geser
+            currentTime = slotEndTime;
+        }
+
+        currentDay = currentDay.add(7, 'day')
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+        // buat header schedule
+        const newSchedule = await tx.availability_schedules.create({
+            data : {
+                dosen_user_id: dosenUserId,
+                type : "rutin",
+                day_of_week : data.day_of_week,
+                slot_duration_minutes : durationMinutes,
+
+                // tanggal nya hanya merupakan dummy, karena db hanya menyimpan data jamnya
+                rutin_start_time: dayjs(`1999-10-01T${data.start_time}`).toDate(),
+                rutin_end_time: dayjs(`1999-10-01T${data.end_time}`).toDate(),
+
+                effective_start_date: startDate.toDate(),
+                effective_end_date: endDate.toDate()
+            }
+        });
+
+        const slotWithRelation = slotToCreate.map(slot => ({
+            ...slot,
+            schedule_id: newSchedule.schedule_id
+        }))
+
+        await tx.slots.createMany({
+            data : slotWithRelation
+        })
+        return newSchedule
+    })
+
+    return {schedule : result, total_slot: slotToCreate.length}
+
+}

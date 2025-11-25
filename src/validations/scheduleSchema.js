@@ -42,6 +42,28 @@ export const createScheduleSchema = z.object({
     }, {
       message: "Jam selesai harian harus setelah jam mulai",
       path: ["end_time"]
+    }),
+
+    baseSchema.extend({
+      type: z.literal("rutin"),
+      
+      // 0=Minggu, 1=Senin, ..., 6=Sabtu
+      day_of_week: z.number().int().min(0).max(6, "Hari harus antara 0 (Minggu) s/d 6 (Sabtu)"),
+      
+      // Request lu: Pake nama 'start_time' & 'end_time'
+      // Tapi isinya JAM (HH:mm), bukan Tanggal
+      start_time: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Format waktu harus HH:mm (contoh: 13:00)"),
+      end_time: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Format waktu harus HH:mm (contoh: 15:00)"),
+      
+      effective_start_date: z.string().date(), // YYYY-MM-DD
+      effective_end_date: z.string().date(),
+
+    }).refine((data) => new Date(data.effective_end_date) >= new Date(data.effective_start_date), {
+      message: "Tanggal akhir periode tidak boleh sebelum tanggal mulai",
+      path: ["effective_end_date"]
+    }).refine((data) => data.end_time > data.start_time, {
+      message: "Waktu selesai harus setelah waktu mulai",
+      path: ["end_time"]
     })
 
   ])
