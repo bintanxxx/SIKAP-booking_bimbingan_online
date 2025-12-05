@@ -11,6 +11,11 @@ export const createAdhocSchedule = async (dosenUserId, data) => {
     const endTime = dayjs(data.end_time)
     const durationMinutes = data.slot_duration || 30
 
+    // kalo bikin jadwal yg udh lewat gabisa
+    if (startTime.isBefore(dayjs().subtract(1, 'minute'))){
+        throw new Error("Tidak dapat membuat jadwal di waktu yang sudah lewat.")
+    }
+
     // periksa apakah slot lebih besar daripada total waktu yang tersedia
     // misal durasi slot 90 menit tapi buka jadwal hanya 1 jam
     const totalDuration = endTime.diff(startTime, 'minute');
@@ -125,16 +130,22 @@ export const createAdhocSchedule = async (dosenUserId, data) => {
 // }
 
 
+
 export const createBlokSchedule = async (dosenUserId, data) => {
     // const startTIme = dayjs(data.start_time);
     // const endTime = dayjs(data.end_time);
     const durationMinutes = data.slot_duration || 30;
     const startDate = dayjs(data.effective_start_date);
     const endDate = dayjs(data.effective_end_date);
+    const now = dayjs();
+
+    if (endDate.isBefore(now, 'day')){
+        throw new Error("Periode jadwal sudah berakhir (kadaluarsa).")
+    }
 
     const slotToCreate = []
 
-    let currentDay = startDate;
+    let currentDay = startDate.isBefore(now, 'day') ? now : startDate;
 
     while (currentDay.isSameOrBefore(endDate, 'day')){
         const [startHour, startMinute] = data.start_time.split(':').map(Number)
@@ -231,11 +242,17 @@ export const createRoutineSchedule = async (dosenUserId, data) => {
     const startDate = dayjs(data.effective_start_date);
     const endDate = dayjs(data.effective_end_date);
     const durationMinutes = data.slot_duration || 30;
+    const now = dayjs();
+
+    if(endDate.isBefore(dayjs().subtract(1, 'day'))){
+        throw new Error("Periode jadwal sudah berakhir (kadaluarsa).")
+    }
 
     const slotToCreate = [];
 
     // kalo tanggal mulai dan hari belom sesuai, geser tanggal sampe ketemu harinya
-    let currentDay = startDate;
+    let currentDay = startDate.isBefore(now, 'day') ? now : startDate;
+
     while (currentDay.day() !== data.day_of_week) {
         currentDay = currentDay.add(1, 'day')
     } // jika perulangan sudah berakhir maka hari dan tanggal sudah sesuai
